@@ -41,14 +41,14 @@ pub const Instructions = enum {
     store_variable,
     load_variable,
 
-    begin_class_metadata,
-    create_class_field,
+    // begin_class_metadata,
+    // create_class_field,
 
-    register_class_method,
-    register_class_metadata,
+    // register_class_method,
+    // register_class_metadata,
 
-    new_class,
-    delete_class,
+    create_class,
+    destroy_class,
 
     push_arg,
     call,

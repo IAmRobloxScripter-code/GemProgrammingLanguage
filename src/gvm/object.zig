@@ -267,6 +267,7 @@ pub const ClassMetadata = struct {
 };
 
 pub const Class = struct {
+    super: *Object,
     fields: std.StringHashMap(*Object),
     methods: std.StringHashMap(*Object),
 

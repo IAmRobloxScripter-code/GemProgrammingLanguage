@@ -3,7 +3,7 @@ const gvm = @import("gvm.zig");
 const constants = @import("../constants.zig");
 
 pub const Object = union(enum) {
-    gem_null: u0,
+    galena_null: u0,
     uint8: Int(u8),
     uint16: Int(u16),
     uint32: Int(u32),
@@ -257,7 +257,7 @@ pub const ArgsContainer = struct {
 
 pub const Method = union(enum) {
     zig: *const fn (*Object) anyerror!*Object,
-    gem: Function,
+    galena: Function,
 };
 
 pub const ClassMetadata = struct {

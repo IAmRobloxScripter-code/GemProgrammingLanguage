@@ -72,7 +72,7 @@ pub const GVM = struct {
     objects: std.ArrayList(*objects.Object),
     constants_count: u32,
     constants: std.AutoHashMap(u32, objects.Object),
-    gem_null: *objects.Object,
+    galena_null: *objects.Object,
     zero: *objects.Object,
 
     processes: std.ArrayList(objects.GVM_PROCESS),
@@ -133,8 +133,8 @@ pub const GVM = struct {
     }
 
     pub fn init(args_state: args.Args) !GVM {
-        const gem_null = try ALLOCATOR.create(objects.Object);
-        gem_null.* = .{ .gem_null = 0 };
+        const galena_null = try ALLOCATOR.create(objects.Object);
+        galena_null.* = .{ .galena_null = 0 };
         const zero = try ALLOCATOR.create(objects.Object);
         zero.* = .{ .uint8 = 0 };
 
@@ -147,7 +147,7 @@ pub const GVM = struct {
             .constants_count = 0,
             .constants = .init(ALLOCATOR),
             .processes = .empty,
-            .gem_null = gem_null,
+            .galena_null = galena_null,
             .zero = zero,
         };
     }
@@ -279,13 +279,13 @@ pub const GVM = struct {
     }
 
     pub fn call(self: *GVM, process: *objects.GVM_PROCESS, source: Registers) !void {
-        const function = process.register.get(source) orelse self.gem_null;
+        const function = process.register.get(source) orelse self.galena_null;
 
         switch (function.method.*) {
-            .gem => {
+            .galena => {
                 const return_address = process.instruction_pointer;
-                process.instruction_pointer = function.method.gem.address;
-                const function_args = process.stack.pop() orelse self.gem_null;
+                process.instruction_pointer = function.method.galena.address;
+                const function_args = process.stack.pop() orelse self.galena_null;
                 var arg_index: u32 = 0;
 
                 var stack_frame = try ALLOCATOR.create(Scope);
@@ -304,7 +304,7 @@ pub const GVM = struct {
                 try process.scope_stack.append(ALLOCATOR, stack_frame);
             },
             .zig => {
-                const function_args = process.stack.pop() orelse self.gem_null;
+                const function_args = process.stack.pop() orelse self.galena_null;
                 const result = try function.method.zig(function_args);
 
                 process.register.set(.RET_REG, result);
@@ -340,14 +340,14 @@ pub const GVM = struct {
             ALLOCATOR,
             process.register.get(
                 @enumFromInt(left_id),
-            ) orelse self.gem_null,
+            ) orelse self.galena_null,
         );
 
         try function_params.args_container.value.append(
             ALLOCATOR,
             process.register.get(
                 @enumFromInt(right_id),
-            ) orelse self.gem_null,
+            ) orelse self.galena_null,
         );
 
         process.register.set(
@@ -360,7 +360,7 @@ pub const GVM = struct {
         try self.call(process, destination_id);
         process.register.set(
             @enumFromInt(destination_id),
-            process.register.get(.RET_REG) orelse self.gem_null,
+            process.register.get(.RET_REG) orelse self.galena_null,
         );
     }
 
@@ -505,7 +505,7 @@ pub const GVM = struct {
 
                 try process.stack.append(ALLOCATOR, process.register.get(
                     @enumFromInt(source_id),
-                ) orelse self.gem_null);
+                ) orelse self.galena_null);
             },
             .pop => {
                 process.instruction_pointer += 1;
@@ -514,7 +514,7 @@ pub const GVM = struct {
 
                 process.register.set(
                     @enumFromInt(destination_id),
-                    process.stack.pop() orelse self.gem_null,
+                    process.stack.pop() orelse self.galena_null,
                 );
             },
             .store_variable => {
@@ -533,7 +533,7 @@ pub const GVM = struct {
                             variable_id,
                             process.register.get(
                                 @enumFromInt(source_id),
-                            ) orelse self.gem_null,
+                            ) orelse self.galena_null,
                         );
                     },
                     .function_scope => {
@@ -541,7 +541,7 @@ pub const GVM = struct {
                             variable_id,
                             process.register.get(
                                 @enumFromInt(source_id),
-                            ) orelse self.gem_null,
+                            ) orelse self.galena_null,
                         );
                     },
                 }
@@ -563,7 +563,7 @@ pub const GVM = struct {
                             @enumFromInt(destination_id),
                             scope.block_scope.variables.get(
                                 variable_id,
-                            ) orelse self.gem_null,
+                            ) orelse self.galena_null,
                         );
                     },
                     .function_scope => {
@@ -571,7 +571,7 @@ pub const GVM = struct {
                             @enumFromInt(destination_id),
                             scope.function_scope.variables.get(
                                 variable_id,
-                            ) orelse self.gem_null,
+                            ) orelse self.galena_null,
                         );
                     },
                 }
@@ -654,7 +654,7 @@ pub const GVM = struct {
                     ALLOCATOR,
                     process.register.get(
                         @enumFromInt(value_id),
-                    ) orelse self.gem_null,
+                    ) orelse self.galena_null,
                 );
 
                 process.register.set(
@@ -667,7 +667,7 @@ pub const GVM = struct {
                 try self.call(process, destination_id);
                 process.register.set(
                     @enumFromInt(destination_id),
-                    process.register.get(.RET_REG) orelse self.gem_null,
+                    process.register.get(.RET_REG) orelse self.galena_null,
                 );
             },
             .not => {
@@ -683,7 +683,7 @@ pub const GVM = struct {
                     ALLOCATOR,
                     process.register.get(
                         @enumFromInt(value_id),
-                    ) orelse self.gem_null,
+                    ) orelse self.galena_null,
                 );
 
                 process.register.set(
@@ -696,7 +696,7 @@ pub const GVM = struct {
                 try self.call(process, destination_id);
                 process.register.set(
                     @enumFromInt(destination_id),
-                    process.register.get(.RET_REG) orelse self.gem_null,
+                    process.register.get(.RET_REG) orelse self.galena_null,
                 );
             },
             .call => {
@@ -711,10 +711,10 @@ pub const GVM = struct {
                 const destination_id = self.readu8(process.instruction_pointer);
                 process.instruction_pointer += 1;
 
-                var args_container = process.register.get(@enumFromInt(destination_id)) orelse self.gem_null;
+                var args_container = process.register.get(@enumFromInt(destination_id)) orelse self.galena_null;
                 try args_container.args_container.value.append(
                     ALLOCATOR,
-                    process.stack.pop() orelse self.gem_null,
+                    process.stack.pop() orelse self.galena_null,
                 );
             },
             .set_member => {
@@ -733,21 +733,21 @@ pub const GVM = struct {
                     ALLOCATOR,
                     process.register.get(
                         @enumFromInt(object_id),
-                    ) orelse self.gem_null,
+                    ) orelse self.galena_null,
                 );
 
                 try function_params.args_container.value.append(
                     ALLOCATOR,
                     process.register.get(
                         @enumFromInt(member_id),
-                    ) orelse self.gem_null,
+                    ) orelse self.galena_null,
                 );
 
                 try function_params.args_container.value.append(
                     ALLOCATOR,
                     process.register.get(
                         @enumFromInt(value_id),
-                    ) orelse self.gem_null,
+                    ) orelse self.galena_null,
                 );
 
                 process.register.set(.PRIV_REG4, switch (function_params.args_container.value.items[0].*) {
@@ -779,14 +779,14 @@ pub const GVM = struct {
                     ALLOCATOR,
                     process.register.get(
                         @enumFromInt(object_id),
-                    ) orelse self.gem_null,
+                    ) orelse self.galena_null,
                 );
 
                 try function_params.args_container.value.append(
                     ALLOCATOR,
                     process.register.get(
                         @enumFromInt(member_id),
-                    ) orelse self.gem_null,
+                    ) orelse self.galena_null,
                 );
 
                 try function_params.args_container.value.append(

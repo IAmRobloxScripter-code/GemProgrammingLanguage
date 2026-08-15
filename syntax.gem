@@ -1,0 +1,154 @@
+reflect std
+reflect cstd
+reflect modulename*
+// adding * will import all the functions and variables
+// from a module without needing to do modulename.variablename
+// or modulename.functionname()
+// just variablename and functioname()
+
+var x: u32 = 100;
+var y: float = 100.0;
+var z: []u32 = {100, 200, 300};
+
+// types:
+// void
+// bool
+// u8
+// u16
+// u32
+// u64
+// ubig - infinite like python
+// i8
+// i16
+// i32
+// i64
+// ibig - infinite like python
+// float
+// double
+// string
+// []type - array
+
+const a: u32 = 100;
+
+pub class Iterator {
+  index: u32 = 0
+  object: []Object
+
+  pub fn init(object: []Object) void {
+    self.object = object
+  }
+
+  pub fn next() Object {
+    const element: Object = self.object[index]
+    if self.index > self.object.len
+      ret null
+    
+    self.index++;
+    ret element
+  }
+}
+
+pub class arrayImpl {
+  array: []Object,
+  len: u32 = 0,
+
+  pub fn init(array: []Object) void {
+    self.len = array.len
+    self.array = array
+  }
+
+  pub fn iterator() Iterator(Object) {
+    ret Iterator(Object)(self.array)
+  }
+}
+
+pub enum ThisIsEnum {
+  a,
+  b,
+  c,
+  d,
+  e,
+}
+
+pub class Main : cstd.loadLibraries("mylib") {
+  x: u32 = 1;
+  pub y: u32 = 20;
+
+  native pub fn hello_from_c() void;
+
+  // in C
+
+  GemObject hello_from_c(GemClass* class, GemArgs* gemArgs) {
+    // gemArgs->len, gemArgs->args
+    print("Hello from C\n");
+    GemClass.call("test", class, 0); // function name, the class, GemArgs pou32er 
+    return gemVoid();
+  }
+
+  pub fn init(argv: []string) u32 {
+    pru32(argv.len)
+
+    print(argv[0])
+    print("hello") // cannot take more args
+    // just one per type like java pru32
+
+    cstd.printf("%d %s\n", 100, "yo")
+    
+    if x + (y as u32) > 10 {
+      print("Hello")
+    } else if {
+
+    } else {
+
+    }
+    // 0..10 is a builtin iterator class
+    // doesnt need to be part of the VM
+    // since ill make it a class in the lang itself
+    // or backend and then at bytecode generation
+    // ill create it for 0..10
+
+    for index in 0..10 {
+      pru32(index)
+
+      stop
+      continue
+    }
+
+    while true {
+      stop
+    }
+
+    self.test()
+
+    var students: std.map(string, u32) = std.map(string, u32)()
+    students["person1"] = 17
+    students["person2"] = 18
+
+    var array: []Objet = {
+      100, 200, 300
+    };
+
+    for value in array {
+      print(value)
+    }
+
+    destroy students // this just calls the destructor
+
+    ret 0
+  }
+
+  pub fn destructor() {}
+
+  fn test() void {
+    print("test")
+  }
+
+  fn +(object: Main) u32 {
+    return Main(self.x + object.x)
+  }
+
+  // operators:
+  // + - * / ** % ! == != > < >= <=
+  // << >> ^ | & ~
+  // [] .
+}

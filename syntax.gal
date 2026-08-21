@@ -1,14 +1,13 @@
 reflect std
 reflect cstd
 reflect modulename*
-// adding * will import all the functions and variables
+// adding * will import all the classes and variables
 // from a module without needing to do modulename.variablename
-// or modulename.functionname()
-// just variablename and functioname()
+// or modulename.class.functionname()
+// just variablename and class.functioname()
 
 var x: u32 = 100;
 var y: float = 100.0;
-var z: []u32 = {100, 200, 300};
 
 // types:
 // void
@@ -70,10 +69,10 @@ pub enum ThisIsEnum {
   e,
 }
 
-pub class Main : cstd.loadLibraries("mylib") {
+pub class Main : "mylib" {
   x: u32 = 1;
   pub y: u32 = 20;
-
+  
   native pub fn hello_from_c() void;
 
   // in C
@@ -81,20 +80,20 @@ pub class Main : cstd.loadLibraries("mylib") {
   GemObject hello_from_c(GemClass* class, GemArgs* gemArgs) {
     // gemArgs->len, gemArgs->args
     print("Hello from C\n");
-    GemClass.call("test", class, 0); // function name, the class, GemArgs pou32er 
+    GemClass.call("test", class, 0); // function name, the class, galena args
     return gemVoid();
   }
 
   pub fn init(argv: []string) u32 {
-    pru32(argv.len)
+    print(argv.len)
 
     print(argv[0])
     print("hello") // cannot take more args
-    // just one per type like java pru32
+    // just one per type like java pruint
 
     cstd.printf("%d %s\n", 100, "yo")
     
-    if x + (y as u32) > 10 {
+    if self.x + (self.y as u32) > 10 {
       print("Hello")
     } else if {
 
@@ -108,7 +107,7 @@ pub class Main : cstd.loadLibraries("mylib") {
     // ill create it for 0..10
 
     for index in 0..10 {
-      pru32(index)
+      print(index)
 
       stop
       continue
@@ -120,13 +119,13 @@ pub class Main : cstd.loadLibraries("mylib") {
 
     self.test()
 
-    var students: std.map(string, u32) = std.map(string, u32)()
+    var students: [](string, u32) = {}
     students["person1"] = 17
     students["person2"] = 18
 
-    var array: []Objet = {
+    var array: []Object = [
       100, 200, 300
-    };
+    ];
 
     for value in array {
       print(value)

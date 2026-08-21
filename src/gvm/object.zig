@@ -262,8 +262,9 @@ pub const Method = union(enum) {
 
 pub const ClassMetadata = struct {
     name: []const u8,
+    super: []const u8,
     fields: std.StringHashMap(Object),
-    methods: std.StringHashMap(*Object),
+    methods: std.StringHashMap(Object),
 };
 
 pub const Class = struct {

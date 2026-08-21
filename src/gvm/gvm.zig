@@ -70,7 +70,6 @@ pub const GVM = struct {
     gc_interval: u32,
     gc_interval_count: u32,
     objects: std.ArrayList(*objects.Object),
-    constants_count: u32,
     constants: std.AutoHashMap(u32, objects.Object),
     galena_null: *objects.Object,
     zero: *objects.Object,
@@ -79,6 +78,12 @@ pub const GVM = struct {
     class_metadatas: std.StringHashMap(u32, objects.ClassMetadata),
 
     bytes: []u8,
+    instruction_pointer_start: u64,
+
+    major_version: u16 = 0,
+    minor_version: u16 = 0,
+
+    global_registers: RegisterFile,
 
     pub fn countMemoryUsage(self: *GVM) u64 {
         var usage: u64 = 0;
@@ -143,9 +148,10 @@ pub const GVM = struct {
             .max_memory = try parseMemoryArg(args_state),
             .gc_interval = try std.fmt.parseInt(u32, args_state.getArgValue("-gci"), 10),
             .gc_interval_count = 0,
+            .instruction_pointer_start = 0,
             .objects = .empty,
-            .constants_count = 0,
             .constants = .init(ALLOCATOR),
+            .class_metadatas = .init(ALLOCATOR),
             .processes = .empty,
             .galena_null = galena_null,
             .zero = zero,
@@ -205,6 +211,188 @@ pub const GVM = struct {
     pub fn collectGarbage(self: *GVM) !void {
         for (self.processes.items) |process| {
             try self.mark(process.stack);
+        }
+    }
+
+    pub fn read_header(self: *GVM) !void {
+        if (!(self.bytes[0] == 'G' and self.bytes[1] == 'V' and self.bytes[2] == 'M')) {
+            return error.InvalidMagicNumber;
+        }
+        self.instruction_pointer_start = 3;
+
+        const minor_version = self.readu32(self.instruction_pointer_start);
+        self.instruction_pointer_start += 4;
+        const major_version = self.readu32(self.instruction_pointer_start);
+        self.instruction_pointer_start += 4;
+
+        if (major_version < self.major_version or
+            (major_version == self.major_version and
+                minor_version < self.minor_version))
+        {
+            return error.OldVersion;
+        }
+
+        const constant_count = self.readu32(self.instruction_pointer_start);
+        self.instruction_pointer_start += 4;
+
+        for (0..constant_count) |constant_index| {
+            const instruction_type: bytecode.BytecodeType = @enumFromInt(
+                self.bytes[self.instruction_pointer_start],
+            );
+            self.instruction_pointer_start += 1;
+
+            switch (instruction_type) {
+                .uint8 => {
+                    try self.constants.put(constant_index, objects.Object{
+                        .uint8 = .{ .value = self.readu8(self.instruction_pointer_start) },
+                    });
+                    self.instruction_pointer_start += 1;
+                },
+
+                .uint16 => {
+                    try self.constants.put(constant_index, objects.Object{
+                        .uint16 = .{ .value = self.readu16(self.instruction_pointer_start) },
+                    });
+                    self.instruction_pointer_start += 2;
+                },
+
+                .uint32 => {
+                    try self.constants.put(constant_index, objects.Object{
+                        .uint32 = .{ .value = self.readu32(self.instruction_pointer_start) },
+                    });
+                    self.instruction_pointer_start += 4;
+                },
+
+                .uint64 => {
+                    try self.constants.put(constant_index, objects.Object{
+                        .uint64 = .{ .value = self.readu64(self.instruction_pointer_start) },
+                    });
+                    self.instruction_pointer_start += 8;
+                },
+
+                .int8 => {
+                    try self.constants.put(constant_index, objects.Object{
+                        .int8 = .{ .value = self.readi8(self.instruction_pointer_start) },
+                    });
+                    self.instruction_pointer_start += 1;
+                },
+
+                .int16 => {
+                    try self.constants.put(constant_index, objects.Object{
+                        .int16 = .{ .value = self.readi16(self.instruction_pointer_start) },
+                    });
+                    self.instruction_pointer_start += 2;
+                },
+
+                .int32 => {
+                    try self.constants.put(constant_index, objects.Object{
+                        .int32 = .{ .value = self.readi32(self.instruction_pointer_start) },
+                    });
+                    self.instruction_pointer_start += 4;
+                },
+
+                .int64 => {
+                    try self.constants.put(constant_index, objects.Object{
+                        .int64 = .{ .value = self.readi64(self.instruction_pointer_start) },
+                    });
+                    self.instruction_pointer_start += 8;
+                },
+
+                .float16 => {
+                    try self.constants.put(constant_index, objects.Object{
+                        .float16 = .{ .value = self.readf16(self.instruction_pointer_start) },
+                    });
+                    self.instruction_pointer_start += 8;
+                },
+
+                .float32 => {
+                    try self.constants.put(constant_index, objects.Object{
+                        .float32 = .{ .value = self.readf32(self.instruction_pointer_start) },
+                    });
+                    self.instruction_pointer_start += 8;
+                },
+
+                .float64 => {
+                    try self.constants.put(constant_index, objects.Object{
+                        .float64 = .{ .value = self.readf64(self.instruction_pointer_start) },
+                    });
+                    self.instruction_pointer_start += 8;
+                },
+
+                .string => {
+                    const length = self.readu64(self.instruction_pointer_start);
+                    self.instruction_pointer_start += 8;
+
+                    var string: std.ArrayList(u8) = .empty;
+
+                    for (0..length) |_| {
+                        try string.append(ALLOCATOR, self.bytes[self.instruction_pointer_start]);
+                        self.instruction_pointer_start += 1;
+                    }
+
+                    try self.constants.put(constant_index, objects.Object{
+                        .string = .{ .value = string },
+                    });
+                },
+            }
+        }
+    }
+
+    pub fn read_class_file(self: *GVM) !objects.ClassMetadata {
+        // class metadata be like
+        // name
+        // super
+        // [interfaces - maybe later]
+        // field_count
+        // fields
+        // method_count
+        // methods
+
+        const name_length = self.readu64(self.instruction_pointer_start);
+        self.instruction_pointer_start += 8;
+
+        var name: std.ArrayList(u8) = .empty;
+        for (0..name_length) |_| {
+            try name.append(ALLOCATOR, self.readu8(self.instruction_pointer_start));
+            self.instruction_pointer_start += 1;
+        }
+
+        const super_length = self.readu64(self.instruction_pointer_start);
+        self.instruction_pointer_start += 8;
+
+        var super: std.ArrayList(u8) = .empty;
+        for (0..super_length) |_| {
+            try super.append(ALLOCATOR, self.readu8(self.instruction_pointer_start));
+            self.instruction_pointer_start += 1;
+        }
+
+        const field_count = self.readu64(self.instruction_pointer_start);
+        self.instruction_pointer_start += 8;
+
+        var fields: std.StringHashMap(objects.Object) = .init(ALLOCATOR);
+
+        // field_name field_default_value_register
+        for (0..field_count) |_| {
+            const field_name_length = self.readu64(self.instruction_pointer_start);
+            self.instruction_pointer_start += 8;
+
+            var field_name: std.ArrayList(u8) = .empty;
+            for (0..field_name_length) |_| {
+                try field_name.append(
+                    ALLOCATOR,
+                    self.readu8(self.instruction_pointer_start),
+                );
+                self.instruction_pointer_start += 1;
+            }
+
+            const value_id = self.readu8(self.instruction_pointer_start);
+            self.instruction_pointer_start += 1;
+            try fields.put(
+                field_name,
+                self.global_registers.get(
+                    @enumFromInt(value_id),
+                ) orelse self.galena_null,
+            );
         }
     }
 
@@ -368,110 +556,6 @@ pub const GVM = struct {
         const instruction = self.bytes[process.instruction_pointer];
 
         switch (@as(bytecode.Instructions, @enumFromInt(instruction))) {
-            .create_constant => {
-                process.instruction_pointer += 1;
-                const instruction_type: bytecode.BytecodeType = @enumFromInt(
-                    self.bytes[process.instruction_pointer],
-                );
-                process.instruction_pointer += 1;
-
-                switch (instruction_type) {
-                    .uint8 => {
-                        try self.constants.put(self.constants_count, objects.Object{
-                            .uint8 = .{ .value = self.readu8(process.instruction_pointer) },
-                        });
-                        process.instruction_pointer += 1;
-                    },
-
-                    .uint16 => {
-                        try self.constants.put(self.constants_count, objects.Object{
-                            .uint16 = .{ .value = self.readu16(process.instruction_pointer) },
-                        });
-                        process.instruction_pointer += 2;
-                    },
-
-                    .uint32 => {
-                        try self.constants.put(self.constants_count, objects.Object{
-                            .uint32 = .{ .value = self.readu32(process.instruction_pointer) },
-                        });
-                        process.instruction_pointer += 4;
-                    },
-
-                    .uint64 => {
-                        try self.constants.put(self.constants_count, objects.Object{
-                            .uint64 = .{ .value = self.readu64(process.instruction_pointer) },
-                        });
-                        process.instruction_pointer += 8;
-                    },
-
-                    .int8 => {
-                        try self.constants.put(self.constants_count, objects.Object{
-                            .int8 = .{ .value = self.readi8(process.instruction_pointer) },
-                        });
-                        process.instruction_pointer += 1;
-                    },
-
-                    .int16 => {
-                        try self.constants.put(self.constants_count, objects.Object{
-                            .int16 = .{ .value = self.readi16(process.instruction_pointer) },
-                        });
-                        process.instruction_pointer += 2;
-                    },
-
-                    .int32 => {
-                        try self.constants.put(self.constants_count, objects.Object{
-                            .int32 = .{ .value = self.readi32(process.instruction_pointer) },
-                        });
-                        process.instruction_pointer += 4;
-                    },
-
-                    .int64 => {
-                        try self.constants.put(self.constants_count, objects.Object{
-                            .int64 = .{ .value = self.readi64(process.instruction_pointer) },
-                        });
-                        process.instruction_pointer += 8;
-                    },
-
-                    .float16 => {
-                        try self.constants.put(self.constants_count, objects.Object{
-                            .float16 = .{ .value = self.readf16(process.instruction_pointer) },
-                        });
-                        process.instruction_pointer += 8;
-                    },
-
-                    .float32 => {
-                        try self.constants.put(self.constants_count, objects.Object{
-                            .float32 = .{ .value = self.readf32(process.instruction_pointer) },
-                        });
-                        process.instruction_pointer += 8;
-                    },
-
-                    .float64 => {
-                        try self.constants.put(self.constants_count, objects.Object{
-                            .float64 = .{ .value = self.readf64(process.instruction_pointer) },
-                        });
-                        process.instruction_pointer += 8;
-                    },
-
-                    .string => {
-                        const length = self.readu64(process.instruction_pointer);
-                        process.instruction_pointer += 8;
-
-                        var string: std.ArrayList(u8) = .empty;
-
-                        for (0..length) |_| {
-                            try string.append(ALLOCATOR, self.bytes[process.instruction_pointer]);
-                            process.instruction_pointer += 1;
-                        }
-
-                        try self.constants.put(self.constants_count, objects.Object{
-                            .string = .{ .value = string },
-                        });
-                    },
-                }
-
-                self.constants_count += 1;
-            },
             .load_constant => {
                 process.instruction_pointer += 1;
                 const constant_id = self.readu32(process.instruction_pointer);

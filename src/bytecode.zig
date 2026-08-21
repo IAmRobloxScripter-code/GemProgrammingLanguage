@@ -1,5 +1,4 @@
 pub const Instructions = enum {
-    create_constant,
     load_constant,
 
     mov,

@@ -336,6 +336,14 @@ pub const GVM = struct {
                 },
             }
         }
+
+        const class_count = self.readu64(self.instruction_pointer_start);
+        self.instruction_pointer_start += 8;
+
+        for (0..class_count) |_| {
+            const class_metadata = try self.read_class_file();
+            try self.class_metadatas.put(class_metadata.name, class_metadata);
+        }
     }
 
     pub fn read_class_file(self: *GVM) !objects.ClassMetadata {
@@ -394,6 +402,49 @@ pub const GVM = struct {
                 ) orelse self.galena_null,
             );
         }
+
+        const method_count = self.readu64(self.instruction_pointer_start);
+        self.instruction_pointer_start += 8;
+
+        var methods: std.StringHashMap(objects.Object) = .init(ALLOCATOR);
+
+        // method_name method_argc method_bytecode_size
+        for (0..method_count) |_| {
+            const method_name_length = self.readu64(self.instruction_pointer_start);
+            self.instruction_pointer_start += 8;
+
+            var method_name: std.ArrayList(u8) = .empty;
+            for (0..method_name_length) |_| {
+                try method_name.append(
+                    ALLOCATOR,
+                    self.readu8(self.instruction_pointer_start),
+                );
+                self.instruction_pointer_start += 1;
+            }
+
+            const argc = self.readu64(self.instruction_pointer_start);
+            self.instruction_pointer_start += 8;
+
+            const bytecode_size = self.readu64(self.instruction_pointer_start);
+            self.instruction_pointer_start += 8;
+
+            const method_address = self.instruction_pointer_start;
+            self.instruction_pointer_start += bytecode_size;
+
+            const method: objects.Object = .{ .method = .{ .galena = .{
+                .argc = argc,
+                .address = method_address,
+            } } };
+
+            try methods.put(method_name, method);
+        }
+
+        return .{
+            .name = name,
+            .super = super,
+            .fields = fields,
+            .methods = methods,
+        };
     }
 
     pub fn execute(self: *GVM) !void {

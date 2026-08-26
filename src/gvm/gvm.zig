@@ -74,7 +74,7 @@ pub const GVM = struct {
     galena_null: *objects.Object,
     zero: *objects.Object,
 
-    processes: std.ArrayList(objects.GVM_PROCESS),
+    processes: std.ArrayList(*objects.GVM_PROCESS),
     class_metadatas: std.StringHashMap(u32, objects.ClassMetadata),
 
     bytes: []u8,
@@ -84,6 +84,9 @@ pub const GVM = struct {
     minor_version: u16 = 0,
 
     global_registers: RegisterFile,
+
+    main_process: *objects.GVM_PROCESS = undefined,
+    current_process: ?*objects.GVM_PROCESS = null,
 
     pub fn countMemoryUsage(self: *GVM) u64 {
         var usage: u64 = 0;
@@ -166,7 +169,6 @@ pub const GVM = struct {
                 .function = function,
                 .stack = .empty,
                 .scope_stack = .empty,
-                .return_stack = .empty,
                 .register = objects.RegisterFile{},
                 .paused = false,
                 .dead = false,
@@ -183,6 +185,11 @@ pub const GVM = struct {
     pub fn mark(self: *GVM, list: std.ArrayList(*objects.Object)) anyerror!void {
         for (list.items) |item| {
             switch (item.*) {
+                .method => {
+                    switch (item.*.method) {
+                        .galena => item.*.method.galena.gc_marked = true,
+                    }
+                },
                 .array => {
                     item.array.gc_marked = true;
                     try self.mark(item.array.value);
@@ -211,6 +218,41 @@ pub const GVM = struct {
     pub fn collectGarbage(self: *GVM) !void {
         for (self.processes.items) |process| {
             try self.mark(process.stack);
+
+            for (process.scope_stack.items) |scope| {
+                var variables: std.ArrayList(*objects.Object) = .empty;
+                var iterator = scope.function_scope.variables.valueIterator();
+
+                while (iterator.next()) |variable| {
+                    try variables.append(ALLOCATOR, variable);
+                }
+
+                try self.mark(variables);
+                variables.deinit(ALLOCATOR);
+            }
+        }
+
+        var index = self.objects.items.len;
+
+        while (index > 0) {
+            index -= 1;
+            const is_marked: bool = switch (self.objects.items[index].*) {
+                inline else => |*value| value.gc_marked,
+            };
+
+            if (!is_marked) {
+                switch (self.objects.items[index].*) {
+                    inline else => |*value| {
+                        if (self.current_process) |process| {
+                            process.register.set(.PRIV_REG2, value.destructor);
+                            try self.call(process, .PRIV_REG2);
+                        } else {
+                            ALLOCATOR.destroy(self.objects.items[index]);
+                        }
+                    },
+                }
+                _ = self.processes.orderedRemove(index);
+            }
         }
     }
 
@@ -447,15 +489,51 @@ pub const GVM = struct {
         };
     }
 
-    pub fn execute(self: *GVM) !void {
-        for (self.processes.items, 0..5) |process, _| {
-            self.step(process);
+    pub fn createMainProcess(self: *GVM) !void {
+        self.main_process = try self.createProcess(.{
+            .function = .{
+                .address = self.instruction_pointer_start,
+                .argc = 0,
+            },
+        });
 
-            if (process.scope_stack.items.len <= 0 or process.instruction_pointer >= self.bytes.len) {
-                process.dead = true;
-                break;
+        const stack_frame = try ALLOCATOR.create(Scope);
+        stack_frame.* = .{
+            .function_scope = .{
+                .variables = .init(ALLOCATOR),
+                .return_address = self.instruction_pointer_start,
+            },
+        };
+
+        try self.main_process.scope_stack.append(ALLOCATOR, stack_frame);
+    }
+
+    pub fn execute(self: *GVM) !bool {
+        var all_dead: bool = true;
+
+        for (self.processes.items) |process| {
+            if (process.dead) continue;
+            all_dead = false;
+            if (process.paused) continue;
+
+            self.current_process = process;
+            for (0..5) |_| {
+                self.step(process);
+
+                if (process.paused) break;
+                if (process.dead) break;
+
+                if (process.scope_stack.items.len <= 0 or
+                    process.instruction_pointer >= self.bytes.len)
+                {
+                    process.dead = true;
+                    break;
+                }
             }
+            self.current_process = null;
         }
+
+        return all_dead;
     }
 
     pub inline fn readu8(self: *GVM, instruction_pointer: u64) u8 {
@@ -748,6 +826,10 @@ pub const GVM = struct {
             .ret => {
                 const stack_frame = process.scope_stack.pop() orelse return error.cannotReturnOutOfScope;
                 process.instruction_pointer = stack_frame.function_scope.return_address;
+                switch (stack_frame.*) {
+                    .block_scope => stack_frame.block_scope.variables.deinit(),
+                    .function_scope => stack_frame.function_scope.variables.deinit(),
+                }
                 ALLOCATOR.destroy(stack_frame);
             },
             .add,
@@ -934,6 +1016,20 @@ pub const GVM = struct {
                 });
 
                 try self.call(process, .PRIV_REG4);
+            },
+            .create_class => {
+                process.instruction_pointer += 1;
+                const destination_id = self.readu8(process.instruction_pointer);
+                process.instruction_pointer += 1;
+
+                const class_metadata_id = self.readu8(process.instruction_pointer);
+                process.instruction_pointer += 1;
+
+                var class_object: *objects.Object = try ALLOCATOR.create(objects.Object);
+                class_object.* = .{ .class = .{
+                    .fields = .init(ALLOCATOR),
+                    .methods = .init(ALLOCATOR),
+                } };
             },
         }
     }
